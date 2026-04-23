@@ -9,7 +9,7 @@ import { I } from './Icons';
 
 export function History() {
   const router = useRouter();
-  const { turns, historyList, setHistoryList, setLightbox, setModel, setRatio, setN } = useStore();
+  const { turns, setTurns, historyList, setHistoryList, setLightbox, setModel, setRatio, setN } = useStore();
   const [filter, setFilter] = useState<'all' | 'completed' | 'failed'>('all');
   const [q, setQ] = useState('');
 
@@ -40,8 +40,15 @@ export function History() {
     return true;
   });
 
-  function del(id: string) { setHistoryList(historyList.filter((h) => h.id !== id)); }
-  function clearAll() { if (confirm('确定清空全部历史记录？此操作不可撤销。')) setHistoryList([]); }
+  function del(id: string) {
+    setHistoryList(historyList.filter((h) => h.id !== id));
+    setTurns(prev => prev.filter((t) => t.id !== id));
+  }
+  function clearAll() {
+    if (!confirm('确定清空全部历史记录？此操作不可撤销。')) return;
+    setHistoryList([]);
+    setTurns(prev => prev.filter((t) => t.status !== 'completed' && t.status !== 'failed'));
+  }
 
   function exportHistory() {
     const blob = new Blob([JSON.stringify({ version: 1, history: historyList }, null, 2)], { type: 'application/json' });
