@@ -141,11 +141,32 @@ function isLikelyImageUrl(value: string): boolean {
   return value.startsWith('https://') || value.startsWith('http://') || value.startsWith('data:image/');
 }
 
+function splitCombinedUrls(value: string): string[] {
+  const matches = value.match(/https?:\/\/[^,\s]+|data:image\/[^,\s]+,[A-Za-z0-9+/=]+/g);
+  if (!matches) return [value];
+  return matches;
+}
+
 function collectImageUrls(value: unknown, out: string[], depth = 0): void {
   if (depth > 6 || value == null) return;
 
   if (typeof value === 'string') {
-    if (isLikelyImageUrl(value)) out.push(value);
+    const trimmed = value.trim();
+    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+      try {
+        collectImageUrls(JSON.parse(trimmed), out, depth + 1);
+        return;
+      } catch {
+        // fall through and treat it as a plain string
+      }
+    }
+    if (trimmed.includes(',') && (trimmed.includes('https://') || trimmed.includes('http://'))) {
+      for (const part of splitCombinedUrls(trimmed)) {
+        if (isLikelyImageUrl(part)) out.push(part);
+      }
+      return;
+    }
+    if (isLikelyImageUrl(trimmed)) out.push(trimmed);
     return;
   }
 
@@ -210,6 +231,10 @@ export function firstExpiresAt(data: TaskData): number | undefined {
 export function proxiedImage(url: string): string {
   if (url.startsWith('data:image/')) return url;
   return `/api/proxy-image?url=${encodeURIComponent(url)}`;
+}
+
+export function previewImage(url: string): string {
+  return url;
 }
 
 export async function downloadImage(url: string, filename: string): Promise<void> {

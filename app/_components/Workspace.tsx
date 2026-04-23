@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { getAvailableSizes, getModelSpec, MODELS, QUICK_PROMPTS, clsx, fmtTime, hueFor } from '../_lib/data';
 import { useStore, type DiagnosticEntry, type RefImage, type Turn } from '../_lib/store';
-import { downloadImage, proxiedImage, readFileAsDataURL } from '../_lib/apimart';
+import { downloadImage, previewImage, readFileAsDataURL } from '../_lib/apimart';
 import { I } from './Icons';
 
 function Composer({ hasKey, onSubmit }: { hasKey: boolean; onSubmit: (p: { prompt: string; refs: RefImage[]; model: string; ratio: string; n: number }) => void; }) {
@@ -441,7 +441,7 @@ function ResultCard({ turn, onRetry, onReuse }: {
               return (
                 <div key={index} className="res-cell has-image" onClick={() => setLightbox({ turn, idx: index, hue })}>
                   <img
-                    src={proxiedImage(url)}
+                    src={previewImage(url)}
                     alt=""
                     style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
                   />

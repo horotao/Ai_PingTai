@@ -2,7 +2,7 @@
 
 import { fmtTime } from '../_lib/data';
 import { useStore } from '../_lib/store';
-import { downloadImage, proxiedImage } from '../_lib/apimart';
+import { downloadImage, previewImage } from '../_lib/apimart';
 import { I } from './Icons';
 
 export function Lightbox() {
@@ -36,7 +36,7 @@ export function Lightbox() {
             ['--hue' as any]: hue,
             ['--angle' as any]: 30 + (idx * 27) % 90,
             ['--aspect' as any]: `${a}/${b}`,
-            backgroundImage: url ? `url(${proxiedImage(url)})` : undefined,
+            backgroundImage: url ? `url(${previewImage(url)})` : undefined,
             backgroundSize: 'contain',
             backgroundRepeat: 'no-repeat',
             backgroundPosition: 'center',

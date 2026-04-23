@@ -4,7 +4,7 @@ import { useMemo, useState, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { clsx, fmtTime, getModelSpec, hueFor } from '../_lib/data';
 import { useStore, type HistoryItem } from '../_lib/store';
-import { downloadImage, proxiedImage } from '../_lib/apimart';
+import { downloadImage, previewImage } from '../_lib/apimart';
 import { I } from './Icons';
 
 export function History() {
@@ -126,7 +126,7 @@ export function History() {
                   <div
                     className={clsx('hist-thumb', h.status === 'failed' && 'fail', thumb && 'has-image')}
                     style={thumb
-                      ? ({ backgroundImage: `url(${proxiedImage(thumb)})`, backgroundSize: 'cover', backgroundPosition: 'center', '--hue': hueFor(h.id) } as CSSProperties)
+                      ? ({ backgroundImage: `url(${previewImage(thumb)})`, backgroundSize: 'cover', backgroundPosition: 'center', '--hue': hueFor(h.id) } as CSSProperties)
                       : ({ '--hue': hueFor(h.id) } as CSSProperties)}
                     onClick={() => h.status === 'completed' && thumb && setLightbox({ turn: h, idx: 0, hue: hueFor(h.id) })}
                   />
