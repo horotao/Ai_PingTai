@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { MODELS, QUICK_PROMPTS, clsx, fmtTime, hueFor } from '../_lib/data';
-import { useStore, type RefImage, type Turn } from '../_lib/store';
+import { useStore, type DiagnosticEntry, type RefImage, type Turn } from '../_lib/store';
 import { downloadImage, proxiedImage, readFileAsDataURL } from '../_lib/apimart';
 import { I } from './Icons';
 
@@ -211,6 +211,63 @@ function NoKeyBanner({ onGo }: { onGo: () => void }) {
   );
 }
 
+function formatDiagTime(ts: number): string {
+  const d = new Date(ts);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+}
+
+function DiagnosticPanel() {
+  const { diagnosticsEnabled, setDiagnosticsEnabled, diagnostics, clearDiagnostics } = useStore();
+  const recent = diagnostics.slice(0, 8);
+
+  return (
+    <section className="diag-panel">
+      <div className="diag-head">
+        <div className="diag-title">
+          <div className="diag-icon"><I.Info style={{ width: 14, height: 14 }} /></div>
+          <div>
+            <div className="name">Request Diagnostics</div>
+            <div className="sub">Capture recent submit and poll events for debugging 401/403 and upstream instability.</div>
+          </div>
+        </div>
+        <div className="diag-actions">
+          <button className={clsx('diag-toggle', diagnosticsEnabled && 'active')} onClick={() => setDiagnosticsEnabled((v) => !v)}>
+            {diagnosticsEnabled ? 'On' : 'Off'}
+          </button>
+          <button className="diag-clear" onClick={clearDiagnostics} disabled={diagnostics.length === 0}>Clear</button>
+        </div>
+      </div>
+
+      {diagnosticsEnabled ? (
+        recent.length > 0 ? (
+          <div className="diag-list">
+            {recent.map((entry: DiagnosticEntry) => (
+              <div key={entry.id} className="diag-item">
+                <div className="diag-row">
+                  <span className="diag-time">{formatDiagTime(entry.at)}</span>
+                  <span className={clsx('diag-badge', entry.state)}>{entry.phase}.{entry.state}</span>
+                  {typeof entry.code === 'number' && <span className="diag-code">HTTP {entry.code}</span>}
+                  {entry.taskId && <span className="diag-task">{entry.taskId}</span>}
+                </div>
+                <div className="diag-msg">{entry.message}</div>
+                <div className="diag-meta">
+                  {entry.model && <span>{entry.model}</span>}
+                  {entry.ratio && <span>{entry.ratio}</span>}
+                  {typeof entry.n === 'number' && <span>x{entry.n}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="diag-empty">No events yet. Submit a request and the latest diagnostics will appear here.</div>
+        )
+      ) : (
+        <div className="diag-empty">Diagnostics are off. Turn them on before reproducing an issue.</div>
+      )}
+    </section>
+  );
+}
+
 function EmptyState({ onPick }: { onPick: (p: string) => void }) {
   return (
     <div className="empty">
@@ -407,6 +464,7 @@ export function Workspace() {
       <div className="results" ref={scrollRef}>
         <div className="results-inner">
           {!hasKey && <NoKeyBanner onGo={() => router.push('/settings')} />}
+          <DiagnosticPanel />
           {turns.length === 0 && hasKey && (
             <EmptyState onPick={(p) => submitTurn({ prompt: p, refs: [], model, ratio, n, adv })} />
           )}

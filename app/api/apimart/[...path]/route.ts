@@ -44,6 +44,11 @@ async function proxy(req: NextRequest, segments: string[]) {
   }
 
   const text = await upstream.text();
+  if (!upstream.ok && process.env.NODE_ENV !== 'production') {
+    const snippet = text.replace(/\s+/g, ' ').trim().slice(0, 400);
+    console.error(`[apimart proxy] ${req.method} ${target} -> ${upstream.status}`, snippet);
+  }
+
   return new Response(text, {
     status: upstream.status,
     headers: { 'Content-Type': upstream.headers.get('Content-Type') ?? 'application/json' },

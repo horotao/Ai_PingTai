@@ -79,6 +79,19 @@ export type Adv = {
   maskUrl?: string;
 };
 
+export type DiagnosticEntry = {
+  id: string;
+  at: number;
+  phase: 'submit' | 'poll';
+  state: 'pending' | 'ok' | 'error';
+  model?: string;
+  ratio?: string;
+  n?: number;
+  taskId?: string;
+  message: string;
+  code?: number;
+};
+
 export type AppStore = {
   tweaks: Tweaks;
   setTweaks: (t: Tweaks) => void;
@@ -102,6 +115,10 @@ export type AppStore = {
   setTurns: (t: Turn[] | ((prev: Turn[]) => Turn[])) => void;
   historyList: HistoryItem[];
   setHistoryList: (h: HistoryItem[] | ((prev: HistoryItem[]) => HistoryItem[])) => void;
+  diagnosticsEnabled: boolean;
+  setDiagnosticsEnabled: (v: boolean | ((prev: boolean) => boolean)) => void;
+  diagnostics: DiagnosticEntry[];
+  clearDiagnostics: () => void;
   lightbox: { turn: Turn | HistoryItem; idx: number; hue: number } | null;
   setLightbox: (v: AppStore['lightbox']) => void;
   /** Submit a turn to the API and start polling. Called by Composer. */

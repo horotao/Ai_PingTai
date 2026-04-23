@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   AppStoreContext,
   DEFAULT_ADV, DEFAULT_CONFIGS, DEFAULT_TWEAKS, SAMPLE_HISTORY,
-  type ApiConfig, type Adv, type HistoryItem, type RefImage, type Tweaks, type Turn,
+  type ApiConfig, type Adv, type DiagnosticEntry, type HistoryItem, type RefImage, type Tweaks, type Turn,
 } from '../_lib/store';
 import {
   ApimartError,
@@ -25,6 +25,8 @@ const LS = {
   configs: 'atelier_configs',
   history: 'atelier_history',
   turns: 'atelier_turns',
+  diagnosticsEnabled: 'atelier_diagnostics_enabled',
+  diagnostics: 'atelier_diagnostics',
 };
 
 function readLS<T>(k: string, fallback: T): T {
@@ -87,7 +89,7 @@ function toHistoryItem(turn: Turn): HistoryItem {
 }
 
 /**
- * Should we poll this turn now? Matches PRD §9.3 + API docs:
+ * Should we poll this turn now? Matches PRD 搂9.3 + API docs:
  * - initial delay: 10s (official docs recommend 10-20s before first poll)
  * - then 3-4s for the first two minutes
  * - 6s for the next three minutes
@@ -126,6 +128,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [historyList, setHistoryList] = useState<HistoryItem[]>(SAMPLE_HISTORY as HistoryItem[]);
+  const [diagnosticsEnabled, setDiagnosticsEnabled] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<DiagnosticEntry[]>([]);
   const [lightbox, setLightbox] = useState<{ turn: Turn | HistoryItem; idx: number; hue: number } | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
@@ -135,6 +139,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     setConfigs(readLS<ApiConfig[]>(LS.configs, DEFAULT_CONFIGS));
     setHistoryList(readLS<HistoryItem[]>(LS.history, SAMPLE_HISTORY as HistoryItem[]));
     setTurns(readLS<Turn[]>(LS.turns, []));
+    setDiagnosticsEnabled(readLS<boolean>(LS.diagnosticsEnabled, false));
+    setDiagnostics(readLS<DiagnosticEntry[]>(LS.diagnostics, []));
     setHydrated(true);
   }, []);
 
@@ -142,8 +148,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => { if (hydrated) try { localStorage.setItem(LS.configs, JSON.stringify(configs)); } catch {} }, [configs, hydrated]);
   useEffect(() => { if (hydrated) try { localStorage.setItem(LS.history, JSON.stringify(historyList)); } catch {} }, [historyList, hydrated]);
   useEffect(() => { if (hydrated) try { localStorage.setItem(LS.turns, JSON.stringify(turns)); } catch {} }, [turns, hydrated]);
+  useEffect(() => { if (hydrated) try { localStorage.setItem(LS.diagnosticsEnabled, JSON.stringify(diagnosticsEnabled)); } catch {} }, [diagnosticsEnabled, hydrated]);
+  useEffect(() => { if (hydrated) try { localStorage.setItem(LS.diagnostics, JSON.stringify(diagnostics)); } catch {} }, [diagnostics, hydrated]);
 
-  // accent color → CSS vars
+  // accent color 鈫?CSS vars
   useEffect(() => {
     document.documentElement.style.setProperty('--accent', `oklch(0.80 0.13 ${tweaks.accent})`);
     document.documentElement.style.setProperty('--accent-2', `oklch(0.85 0.10 ${tweaks.accent})`);
@@ -165,6 +173,24 @@ export function AppShell({ children }: { children: ReactNode }) {
   turnsRef.current = turns;
   const apiKeyRef = useRef(apiKey);
   apiKeyRef.current = apiKey;
+  const diagnosticsEnabledRef = useRef(diagnosticsEnabled);
+  diagnosticsEnabledRef.current = diagnosticsEnabled;
+
+  const pushDiagnostic = useCallback((entry: Omit<DiagnosticEntry, 'id' | 'at'>) => {
+    if (!diagnosticsEnabledRef.current) return;
+    setDiagnostics((prev) => [
+      {
+        id: `diag-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        at: Date.now(),
+        ...entry,
+      },
+      ...prev,
+    ].slice(0, 40));
+  }, []);
+
+  const clearDiagnostics = useCallback(() => {
+    setDiagnostics([]);
+  }, []);
 
   const applyTaskUpdate = useCallback((turnId: string, patch: Partial<Turn>, finalize?: 'complete' | 'fail') => {
     setTurns((prev) => {
@@ -203,14 +229,33 @@ export function AppShell({ children }: { children: ReactNode }) {
       const norm = normalizeStatus(data.status);
       if (norm === 'completed') {
         const urls = extractResultUrls(data);
+        pushDiagnostic({
+          phase: 'poll',
+          state: 'ok',
+          model: turn.model,
+          ratio: turn.ratio,
+          n: turn.n,
+          taskId: turn.taskId,
+          message: `completed with ${urls.length}/${turn.n} image${urls.length === 1 ? '' : 's'}`,
+        });
         applyTaskUpdate(turn.id, {
           resultUrls: urls,
           expiresAt: data.result?.images?.[0]?.expires_at,
           progress: 100,
         }, 'complete');
       } else if (norm === 'failed') {
+        pushDiagnostic({
+          phase: 'poll',
+          state: 'error',
+          model: turn.model,
+          ratio: turn.ratio,
+          n: turn.n,
+          taskId: turn.taskId,
+          code: data.error?.code,
+          message: data.error?.message ?? 'task failed',
+        });
         applyTaskUpdate(turn.id, {
-          error: data.error?.message ?? '任务失败',
+          error: data.error?.message ?? '浠诲姟澶辫触',
         }, 'fail');
       } else {
         const progress = estimateProgress(turn, data.progress);
@@ -218,15 +263,25 @@ export function AppShell({ children }: { children: ReactNode }) {
       }
     } catch (err) {
       if (err instanceof ApimartError && (err.code === 401 || err.code === 403)) {
+        pushDiagnostic({
+          phase: 'poll',
+          state: 'error',
+          model: turn.model,
+          ratio: turn.ratio,
+          n: turn.n,
+          taskId: turn.taskId,
+          code: err.code,
+          message: err.message,
+        });
         applyTaskUpdate(turn.id, { error: err.message }, 'fail');
       }
       // Otherwise keep polling (could be transient network issue)
     }
-  }, [applyTaskUpdate]);
+  }, [applyTaskUpdate, pushDiagnostic]);
 
   // Master polling scheduler: ticks every 1.5s, evaluates every non-terminal
   // turn against its per-turn backoff schedule. Single interval survives all
-  // state changes — no re-render / ref / closure hazards.
+  // state changes 鈥?no re-render / ref / closure hazards.
   useEffect(() => {
     if (!hydrated) return;
     const inflight = inflightRef.current;
@@ -273,7 +328,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           if (urls.length > have) {
             applyTaskUpdate(turn.id, { resultUrls: urls });
           }
-        } catch { /* ignore — URL may have expired */ }
+        } catch { /* ignore 鈥?URL may have expired */ }
       })();
     }
   }, [hydrated, apiKey, applyTaskUpdate]);
@@ -300,27 +355,79 @@ export function AppShell({ children }: { children: ReactNode }) {
       advSnapshot: advSnap,
     };
     setTurns((prev) => [...prev, pending]);
+    pushDiagnostic({
+      phase: 'submit',
+      state: 'pending',
+      model: mdl,
+      ratio: r,
+      n: num,
+      message: `submitting ${mdl} ${r} x${num}`,
+    });
 
     try {
       const taskId = await submitGeneration(apiKey, buildPayload(pending));
+      pushDiagnostic({
+        phase: 'submit',
+        state: 'ok',
+        model: mdl,
+        ratio: r,
+        n: num,
+        taskId,
+        message: 'accepted by upstream and task_id received',
+      });
       setTurns((prev) => prev.map((t) => (t.id === turnId ? { ...t, taskId, progress: 5 } : t)));
     } catch (err) {
-      const msg = err instanceof ApimartError ? err.message : (err as Error)?.message || '提交失败';
+      const msg = err instanceof ApimartError ? err.message : (err as Error)?.message || '鎻愪氦澶辫触';
+      pushDiagnostic({
+        phase: 'submit',
+        state: 'error',
+        model: mdl,
+        ratio: r,
+        n: num,
+        code: err instanceof ApimartError ? err.code : undefined,
+        message: msg,
+      });
       applyTaskUpdate(turnId, { error: msg }, 'fail');
     }
-  }, [apiKey, applyTaskUpdate]);
+  }, [apiKey, applyTaskUpdate, pushDiagnostic]);
 
   const retryTurn = useCallback(async (turn: Turn) => {
     if (!apiKey) return;
     setTurns((prev) => prev.map((t) => (t.id === turn.id ? { ...t, status: 'submitted', progress: 2, error: undefined, taskId: '', resultUrls: undefined, createdAt: Date.now() } : t)));
+    pushDiagnostic({
+      phase: 'submit',
+      state: 'pending',
+      model: turn.model,
+      ratio: turn.ratio,
+      n: turn.n,
+      message: `retrying ${turn.model} ${turn.ratio} x${turn.n}`,
+    });
     try {
       const taskId = await submitGeneration(apiKey, buildPayload({ ...turn, createdAt: Date.now() }));
+      pushDiagnostic({
+        phase: 'submit',
+        state: 'ok',
+        model: turn.model,
+        ratio: turn.ratio,
+        n: turn.n,
+        taskId,
+        message: 'retry accepted by upstream and task_id received',
+      });
       setTurns((prev) => prev.map((t) => (t.id === turn.id ? { ...t, taskId, progress: 5 } : t)));
     } catch (err) {
-      const msg = err instanceof ApimartError ? err.message : (err as Error)?.message || '提交失败';
+      const msg = err instanceof ApimartError ? err.message : (err as Error)?.message || '鎻愪氦澶辫触';
+      pushDiagnostic({
+        phase: 'submit',
+        state: 'error',
+        model: turn.model,
+        ratio: turn.ratio,
+        n: turn.n,
+        code: err instanceof ApimartError ? err.code : undefined,
+        message: msg,
+      });
       applyTaskUpdate(turn.id, { error: msg }, 'fail');
     }
-  }, [apiKey, applyTaskUpdate]);
+  }, [apiKey, applyTaskUpdate, pushDiagnostic]);
 
   const store = {
     tweaks, setTweaks,
@@ -335,6 +442,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     drawerOpen, setDrawerOpen,
     turns, setTurns,
     historyList, setHistoryList,
+    diagnosticsEnabled, setDiagnosticsEnabled,
+    diagnostics, clearDiagnostics,
     lightbox, setLightbox,
     submitTurn,
     retryTurn,

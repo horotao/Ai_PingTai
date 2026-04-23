@@ -64,14 +64,22 @@ async function parseError(res: Response): Promise<ApimartError> {
   let msg = `HTTP ${res.status}`;
   let code = res.status;
   let type = 'http_error';
-  try {
-    const body = (await res.json()) as ApimartErrorBody;
-    if (body?.error?.message) msg = body.error.message;
-    if (body?.error?.code) code = body.error.code;
-    if (body?.error?.type) type = body.error.type;
-  } catch {
-    /* ignore parse errors */
+  const raw = await res.text();
+
+  if (raw) {
+    try {
+      const body = JSON.parse(raw) as ApimartErrorBody;
+      if (body?.error?.message) msg = body.error.message;
+      if (body?.error?.code) code = body.error.code;
+      if (body?.error?.type) type = body.error.type;
+    } catch {
+      const compact = raw.replace(/\s+/g, ' ').trim();
+      if (compact) {
+        msg = compact.length > 240 ? `${compact.slice(0, 240)}...` : compact;
+      }
+    }
   }
+
   return new ApimartError(msg, code, type);
 }
 
