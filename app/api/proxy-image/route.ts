@@ -1,10 +1,14 @@
 import type { NextRequest } from 'next/server';
 
-const ALLOWED_HOSTS = new Set([
-  'api.apimart.ai',
-  'upload.apimart.ai',
-  'cdn.apimart.ai',
-]);
+function isAllowedHost(hostname: string): boolean {
+  return (
+    hostname === 'apimart.ai' ||
+    hostname.endsWith('.apimart.ai') ||
+    hostname === 'googleusercontent.com' ||
+    hostname.endsWith('.googleusercontent.com') ||
+    hostname === 'storage.googleapis.com'
+  );
+}
 
 export async function GET(req: NextRequest) {
   const src = req.nextUrl.searchParams.get('url');
@@ -16,7 +20,7 @@ export async function GET(req: NextRequest) {
   } catch {
     return new Response('invalid url', { status: 400 });
   }
-  if (u.protocol !== 'https:' || !ALLOWED_HOSTS.has(u.hostname)) {
+  if (u.protocol !== 'https:' || !isAllowedHost(u.hostname)) {
     return new Response('host not allowed', { status: 403 });
   }
 

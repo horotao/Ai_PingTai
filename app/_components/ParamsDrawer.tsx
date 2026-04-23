@@ -1,176 +1,244 @@
 'use client';
 
-import { MODELS, clsx } from '../_lib/data';
+import type { CSSProperties } from 'react';
+import { getAvailableSizes, getModelSpec, MODELS, clsx } from '../_lib/data';
 import { useStore } from '../_lib/store';
 import { I } from './Icons';
 
 export function ParamsDrawer() {
   const { drawerOpen, setDrawerOpen, model, setModel, ratio, setRatio, n, setN, adv, setAdv } = useStore();
   if (!drawerOpen) return null;
-  const m = MODELS[model];
-  const is4k = adv.resolution === '4k';
-  const availableSizes: string[] = is4k && m.sizes4k ? m.sizes4k : m.sizes;
-  const onClose = () => setDrawerOpen(false);
-  const patch = (kv: Partial<typeof adv>) => {
+
+  const modelSpec = getModelSpec(model);
+  const availableSizes = getAvailableSizes(modelSpec, adv.resolution);
+
+  const patch = (kv: Partial<typeof adv>, specOverride = modelSpec) => {
     const next = { ...adv, ...kv };
+    if (!next.googleSearch) next.googleImageSearch = false;
     setAdv(next);
-    // If switching to 4k and current ratio not supported, auto-fallback.
-    if (kv.resolution === '4k' && m.sizes4k && !m.sizes4k.includes(ratio)) {
-      setRatio(m.sizes4k[0]);
+
+    const nextSizes = getAvailableSizes(specOverride, next.resolution);
+    if (!nextSizes.includes(ratio)) setRatio(nextSizes[0]);
+  };
+
+  const chooseModel = (nextModel: string) => {
+    const nextSpec = getModelSpec(nextModel);
+    const nextSizes = getAvailableSizes(nextSpec, adv.resolution);
+    setModel(nextModel);
+    if (!nextSizes.includes(ratio)) setRatio(nextSizes[0]);
+    if (n > nextSpec.maxN) setN(nextSpec.maxN);
+    if (nextSpec.supportsResolution && nextSpec.resolutions?.length && !nextSpec.resolutions.includes(adv.resolution)) {
+      patch({ resolution: nextSpec.resolutions[0] }, nextSpec);
     }
   };
 
   return (
     <>
-      <div className="drawer-mask" onClick={onClose} />
+      <div className="drawer-mask" onClick={() => setDrawerOpen(false)} />
       <div className="drawer">
         <div className="drawer-head">
           <div>
-            <h2>参数</h2>
+            <h2>Params</h2>
             <div style={{ fontSize: 12, color: 'var(--fg-3)', marginTop: 4, fontFamily: 'var(--font-mono)' }}>
-              {m.label} · {m.sub}
+              {modelSpec.label} · {modelSpec.sub}
             </div>
           </div>
-          <button className="close" onClick={onClose}><I.X /></button>
+          <button className="close" onClick={() => setDrawerOpen(false)}><I.X /></button>
         </div>
+
         <div className="drawer-body">
           <div className="field">
-            <div className="label"><span className="name">model</span><span className="hint">必填</span></div>
-            <div className="select">
-              <div className="select-trigger">
-                <div className="cur">{m.label}<span className="n">{m.features.join(' · ')}</span></div>
-                <I.Chevron style={{ width: 14, height: 14, color: 'var(--fg-3)' }} />
-              </div>
-            </div>
+            <div className="label"><span className="name">model</span><span className="hint">required</span></div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
-              {Object.entries(MODELS).map(([k, v]: [string, any]) => (
-                <button key={k} className={clsx('opt', k === model && 'active')} onClick={() => setModel(k)} style={{ textAlign: 'left', padding: 10 }}>
-                  <div style={{ fontSize: 12, color: 'var(--fg)', marginBottom: 3 }}>{v.label}</div>
-                  <div style={{ fontSize: 10, color: 'var(--fg-4)' }}>{v.sub}</div>
+              {Object.entries(MODELS).map(([key, spec]) => (
+                <button
+                  key={key}
+                  className={clsx('opt', key === model && 'active')}
+                  onClick={() => chooseModel(key)}
+                  style={{ textAlign: 'left', padding: 10 }}
+                >
+                  <div style={{ fontSize: 12, color: 'var(--fg)', marginBottom: 3 }}>{spec.label}</div>
+                  <div style={{ fontSize: 10, color: 'var(--fg-4)' }}>{spec.sub}</div>
                 </button>
               ))}
             </div>
           </div>
 
           <div className="field">
-            <div className="label"><span className="name">size</span><span className="hint">{availableSizes.length} / {m.sizes.length} 可用</span></div>
-            <div className="grid-opts" style={{ ['--gcols' as any]: 5 }}>
-              {m.sizes.map((s: string) => {
-                const disabled = !availableSizes.includes(s);
-                const [a, b] = s.split(':').map(Number);
+            <div className="label">
+              <span className="name">size</span>
+              <span className="hint">{availableSizes.length} / {modelSpec.sizes.length} available</span>
+            </div>
+            <div className="grid-opts" style={{ '--gcols': 5 } as CSSProperties}>
+              {modelSpec.sizes.map((size) => {
+                const disabled = !availableSizes.includes(size);
+                const [a, b] = size.split(':').map(Number);
                 const base = 22;
-                const w = a >= b ? base : Math.round(base * a / b);
-                const h = b >= a ? base : Math.round(base * b / a);
+                const w = a >= b ? base : Math.round((base * a) / b);
+                const h = b >= a ? base : Math.round((base * b) / a);
                 return (
-                  <button key={s} className={clsx('opt', s === ratio && 'active', disabled && 'disabled')} disabled={disabled} onClick={() => !disabled && setRatio(s)}>
+                  <button
+                    key={size}
+                    className={clsx('opt', size === ratio && 'active', disabled && 'disabled')}
+                    disabled={disabled}
+                    onClick={() => !disabled && setRatio(size)}
+                  >
                     <span className="shape" style={{ width: w, height: h }} />
-                    {s}
+                    {size}
                   </button>
                 );
               })}
             </div>
-            {is4k && <div className="desc">4K 分辨率下仅支持部分比例。</div>}
+            {adv.resolution === '4k' && modelSpec.sizes4k?.length ? (
+              <div className="desc">Only a subset of aspect ratios is available for 4k output.</div>
+            ) : null}
           </div>
 
           <div className="field">
-            <div className="label"><span className="name">n</span><span className="hint">{m.maxN === 1 ? '固定 1' : '1 - 4'}</span></div>
-            <div className="grid-opts" style={{ ['--gcols' as any]: 4 }}>
-              {[1,2,3,4].map(v => (
-                <button key={v} disabled={v > m.maxN} className={clsx('opt', v === n && 'active', v > m.maxN && 'disabled')} onClick={() => v <= m.maxN && setN(v)}>
-                  ×{v}
+            <div className="label"><span className="name">n</span><span className="hint">1 - {modelSpec.maxN}</span></div>
+            <div className="grid-opts" style={{ '--gcols': 4 } as CSSProperties}>
+              {[1, 2, 3, 4].map((value) => (
+                <button
+                  key={value}
+                  disabled={value > modelSpec.maxN}
+                  className={clsx('opt', value === n && 'active', value > modelSpec.maxN && 'disabled')}
+                  onClick={() => value <= modelSpec.maxN && setN(value)}
+                >
+                  x{value}
                 </button>
               ))}
             </div>
           </div>
 
-          {model === 'gpt-image-2-official' && (
+          {modelSpec.supportsResolution ? (
+            <div className="field">
+              <div className="label"><span className="name">resolution</span><span className="hint">higher is slower</span></div>
+              <div className="grid-opts" style={{ '--gcols': 4 } as CSSProperties}>
+                {modelSpec.resolutions?.map((resolution) => (
+                  <button
+                    key={resolution}
+                    className={clsx('opt', resolution === adv.resolution && 'active')}
+                    onClick={() => patch({ resolution })}
+                  >
+                    {resolution}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {modelSpec.supportsQuality ? (
+            <div className="field">
+              <div className="label"><span className="name">quality</span></div>
+              <div className="grid-opts" style={{ '--gcols': 4 } as CSSProperties}>
+                {modelSpec.qualities?.map((quality) => (
+                  <button
+                    key={quality}
+                    className={clsx('opt', quality === adv.quality && 'active')}
+                    onClick={() => patch({ quality })}
+                  >
+                    {quality}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {modelSpec.supportsBackground ? (
+            <div className="field">
+              <div className="label"><span className="name">background</span></div>
+              <div className="grid-opts" style={{ '--gcols': 2 } as CSSProperties}>
+                {modelSpec.backgrounds?.map((background) => (
+                  <button
+                    key={background}
+                    className={clsx('opt', background === adv.background && 'active')}
+                    onClick={() => patch({ background })}
+                  >
+                    {background}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {modelSpec.supportsModeration ? (
+            <div className="field">
+              <div className="label"><span className="name">moderation</span></div>
+              <div className="grid-opts" style={{ '--gcols': 2 } as CSSProperties}>
+                {modelSpec.moderations?.map((moderation) => (
+                  <button
+                    key={moderation}
+                    className={clsx('opt', moderation === adv.moderation && 'active')}
+                    onClick={() => patch({ moderation })}
+                  >
+                    {moderation}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {modelSpec.supportsOutputFormat ? (
             <>
               <div className="field">
-                <div className="label"><span className="name">resolution</span><span className="hint">4K 更慢</span></div>
-                <div className="grid-opts" style={{ ['--gcols' as any]: 3 }}>
-                  {m.resolutions.map((r: string) => (
-                    <button key={r} className={clsx('opt', r === adv.resolution && 'active')} onClick={() => patch({ resolution: r })}>
-                      {r.toUpperCase()}
+                <div className="label"><span className="name">output_format</span></div>
+                <div className="grid-opts" style={{ '--gcols': 3 } as CSSProperties}>
+                  {modelSpec.formats?.map((format) => (
+                    <button
+                      key={format}
+                      className={clsx('opt', format === adv.format && 'active')}
+                      onClick={() => patch({ format })}
+                    >
+                      {format}
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div className="field">
-                <div className="label"><span className="name">quality</span></div>
-                <div className="grid-opts" style={{ ['--gcols' as any]: 4 }}>
-                  {m.qualities.map((q: string) => (
-                    <button key={q} className={clsx('opt', q === adv.quality && 'active')} onClick={() => patch({ quality: q })}>{q}</button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="field">
-                <div className="label"><span className="name">background</span></div>
-                <div className="grid-opts" style={{ ['--gcols' as any]: 2 }}>
-                  {m.backgrounds.map((b: string) => (
-                    <button key={b} className={clsx('opt', b === adv.background && 'active')} onClick={() => patch({ background: b })}>{b}</button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="field">
-                <div className="label"><span className="name">moderation</span></div>
-                <div className="grid-opts" style={{ ['--gcols' as any]: 2 }}>
-                  {m.moderations.map((b: string) => (
-                    <button key={b} className={clsx('opt', b === adv.moderation && 'active')} onClick={() => patch({ moderation: b })}>{b}</button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="field">
-                <div className="label"><span className="name">output_format</span></div>
-                <div className="grid-opts" style={{ ['--gcols' as any]: 3 }}>
-                  {m.formats.map((f: string) => (
-                    <button key={f} className={clsx('opt', f === adv.format && 'active')} onClick={() => patch({ format: f })}>{f}</button>
-                  ))}
-                </div>
-              </div>
-
-              {adv.format !== 'png' && (
+              {adv.format !== 'png' ? (
                 <div className="field">
                   <div className="label"><span className="name">output_compression</span><span className="hint">{adv.compression}</span></div>
                   <div className="slider-row">
-                    <input type="range" min={0} max={100} value={adv.compression} onChange={e => patch({ compression: +e.target.value })} />
+                    <input type="range" min={0} max={100} value={adv.compression} onChange={(e) => patch({ compression: +e.target.value })} />
                     <span className="val">{adv.compression}</span>
                   </div>
                 </div>
-              )}
-
-              <div className="field">
-                <div className="label" style={{ marginBottom: 0 }}>
-                  <span className="name">mask_url <span style={{ color: 'var(--fg-4)', fontWeight: 400 }}>（局部重绘）</span></span>
-                </div>
-                <input
-                  className="input-box"
-                  placeholder="https://..."
-                  style={{ marginTop: 8 }}
-                  value={adv.maskUrl ?? ''}
-                  onChange={(e) => patch({ maskUrl: e.target.value })}
-                />
-                <div className="desc">需要至少一张参考图，仅对该区域重新生成。Alpha 通道必须为「是」，尺寸需与首张参考图一致。</div>
-              </div>
+              ) : null}
             </>
-          )}
+          ) : null}
 
-          {model === 'gpt-image-2' && (
+          {modelSpec.supportsMask ? (
+            <div className="field">
+              <div className="label" style={{ marginBottom: 0 }}>
+                <span className="name">mask_url <span style={{ color: 'var(--fg-4)', fontWeight: 400 }}>(inpainting)</span></span>
+              </div>
+              <input
+                className="input-box"
+                placeholder="https://..."
+                style={{ marginTop: 8 }}
+                value={adv.maskUrl ?? ''}
+                onChange={(e) => patch({ maskUrl: e.target.value })}
+              />
+              <div className="desc">Requires at least one reference image, and the mask size must match the first reference image.</div>
+            </div>
+          ) : null}
+
+          {modelSpec.supportsOfficialFallback ? (
             <div className="field">
               <div className="label" style={{ alignItems: 'center' }}>
                 <span className="name">official_fallback</span>
                 <div className={clsx('switch', adv.fallback && 'on')} onClick={() => patch({ fallback: !adv.fallback })} />
               </div>
-              <div className="desc">当 gpt-image-2 不可用时，自动切换到官方渠道。</div>
+              <div className="desc">Automatically switch to the matching official channel when the standard channel is unavailable.</div>
             </div>
-          )}
+          ) : null}
 
           <div className="field">
-            <div className="label"><span className="name">image_urls</span><span className="hint">≤ 16 张</span></div>
-            <div className="desc">通过底部输入区的 📎 按钮上传参考图。支持拖拽进入窗口。当前 0 / 16。</div>
+            <div className="label">
+              <span className="name">image_urls</span>
+              <span className="hint">≤ {modelSpec.maxRefs}</span>
+            </div>
+            <div className="desc">Upload references from the composer attachment button. Per-file limit: {modelSpec.maxFileSizeMb}MB.</div>
           </div>
         </div>
       </div>

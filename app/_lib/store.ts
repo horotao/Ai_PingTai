@@ -76,6 +76,8 @@ export type Adv = {
   format: string;
   compression: number;
   fallback: boolean;
+  googleSearch: boolean;
+  googleImageSearch: boolean;
   maskUrl?: string;
 };
 
@@ -138,6 +140,7 @@ export const DEFAULT_TWEAKS: Tweaks = { accent: 85, floating: false, sidebar: 'f
 export const DEFAULT_ADV: Adv = {
   resolution: '1k', quality: 'auto', background: 'auto', moderation: 'auto',
   format: 'png', compression: 80, fallback: false,
+  googleSearch: false, googleImageSearch: false,
 };
 export const DEFAULT_CONFIGS: ApiConfig[] = [];
 export { SAMPLE_HISTORY };

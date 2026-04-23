@@ -24,7 +24,8 @@ export type TaskData = {
   actual_time?: number;
   estimated_time?: number;
   result?: {
-    images: Array<{ url: string[]; expires_at?: number }>;
+    images?: unknown[];
+    [key: string]: unknown;
   };
   error?: { message?: string; type?: string; code?: number };
 };
@@ -48,6 +49,8 @@ export type SubmitPayload = {
   image_urls?: string[];
   mask_url?: string;
   official_fallback?: boolean;
+  google_search?: boolean;
+  google_image_search?: boolean;
 };
 
 export class ApimartError extends Error {
@@ -134,25 +137,78 @@ export async function testApiKey(apiKey: string): Promise<{ ok: boolean; message
   }
 }
 
+function isLikelyImageUrl(value: string): boolean {
+  return value.startsWith('https://') || value.startsWith('http://') || value.startsWith('data:image/');
+}
+
+function collectImageUrls(value: unknown, out: string[], depth = 0): void {
+  if (depth > 6 || value == null) return;
+
+  if (typeof value === 'string') {
+    if (isLikelyImageUrl(value)) out.push(value);
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) collectImageUrls(item, out, depth + 1);
+    return;
+  }
+
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    const prioritizedKeys = ['url', 'urls', 'image_url', 'image_urls', 'output_url', 'output_urls', 'src', 'uri'];
+    let usedPriority = false;
+
+    for (const key of prioritizedKeys) {
+      if (key in obj) {
+        usedPriority = true;
+        collectImageUrls(obj[key], out, depth + 1);
+      }
+    }
+
+    if (!usedPriority) {
+      for (const nested of Object.values(obj)) collectImageUrls(nested, out, depth + 1);
+    }
+  }
+}
+
+function firstExpiresAtIn(value: unknown, depth = 0): number | undefined {
+  if (depth > 6 || value == null) return undefined;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = firstExpiresAtIn(item, depth + 1);
+      if (typeof found === 'number') return found;
+    }
+    return undefined;
+  }
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    if (typeof obj.expires_at === 'number') return obj.expires_at;
+    for (const nested of Object.values(obj)) {
+      const found = firstExpiresAtIn(nested, depth + 1);
+      if (typeof found === 'number') return found;
+    }
+  }
+  return undefined;
+}
+
 export function firstResultUrl(data: TaskData, idx = 0): string | undefined {
-  const img = data.result?.images?.[idx];
-  if (!img) return undefined;
-  return Array.isArray(img.url) ? img.url[0] : (img.url as unknown as string);
+  return resultUrls(data)[idx];
 }
 
 export function resultUrls(data: TaskData): string[] {
   const out: string[] = [];
-  for (const im of data.result?.images ?? []) {
-    if (Array.isArray(im.url)) {
-      for (const u of im.url) if (u) out.push(u);
-    } else if (im.url) {
-      out.push(im.url as unknown as string);
-    }
-  }
-  return out;
+  collectImageUrls(data.result?.images, out);
+  if (out.length === 0) collectImageUrls(data.result, out);
+  return [...new Set(out)];
+}
+
+export function firstExpiresAt(data: TaskData): number | undefined {
+  return firstExpiresAtIn(data.result);
 }
 
 export function proxiedImage(url: string): string {
+  if (url.startsWith('data:image/')) return url;
   return `/api/proxy-image?url=${encodeURIComponent(url)}`;
 }
 

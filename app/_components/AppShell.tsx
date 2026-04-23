@@ -8,12 +8,14 @@ import {
 } from '../_lib/store';
 import {
   ApimartError,
+  firstExpiresAt,
   getTask,
   normalizeStatus,
   resultUrls as extractResultUrls,
   submitGeneration,
   type SubmitPayload,
 } from '../_lib/apimart';
+import { DEFAULT_MODEL, getAvailableSizes, getModelSpec, isSlowModelResolution } from '../_lib/data';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
 import { TweaksPanel } from './TweaksPanel';
@@ -42,6 +44,8 @@ function genId(prefix: string): string {
 }
 
 function buildPayload(turn: Turn): SubmitPayload {
+  const spec = getModelSpec(turn.model);
+  const adv = turn.advSnapshot;
   const refsRaw = turn.refs.map((r) => r.dataUrl || r.url).filter(Boolean) as string[];
   const payload: SubmitPayload = {
     model: turn.model,
@@ -50,21 +54,19 @@ function buildPayload(turn: Turn): SubmitPayload {
     n: turn.n,
   };
   if (refsRaw.length) payload.image_urls = refsRaw;
-  if (turn.model === 'gpt-image-2-official') {
-    const a = turn.advSnapshot;
-    if (a) {
-      payload.resolution = a.resolution;
-      if (a.quality && a.quality !== 'auto') payload.quality = a.quality;
-      if (a.background && a.background !== 'auto') payload.background = a.background;
-      if (a.moderation && a.moderation !== 'auto') payload.moderation = a.moderation;
-      if (a.format && a.format !== 'png') payload.output_format = a.format;
-      if ((a.format === 'jpeg' || a.format === 'webp') && typeof a.compression === 'number') {
-        payload.output_compression = a.compression;
-      }
-      if (a.maskUrl && a.maskUrl.trim()) payload.mask_url = a.maskUrl.trim();
+  if (adv) {
+    if (spec.supportsResolution && adv.resolution) payload.resolution = adv.resolution;
+    if (spec.supportsQuality && adv.quality && adv.quality !== 'auto') payload.quality = adv.quality;
+    if (spec.supportsBackground && adv.background && adv.background !== 'auto') payload.background = adv.background;
+    if (spec.supportsModeration && adv.moderation && adv.moderation !== 'auto') payload.moderation = adv.moderation;
+    if (spec.supportsOutputFormat && adv.format && adv.format !== 'png') payload.output_format = adv.format;
+    if (spec.supportsOutputFormat && (adv.format === 'jpeg' || adv.format === 'webp') && typeof adv.compression === 'number') {
+      payload.output_compression = adv.compression;
     }
-  } else if (turn.model === 'gpt-image-2') {
-    if (turn.advSnapshot?.fallback) payload.official_fallback = true;
+    if (spec.supportsMask && adv.maskUrl?.trim()) payload.mask_url = adv.maskUrl.trim();
+    if (spec.supportsOfficialFallback && adv.fallback) payload.official_fallback = true;
+    if (spec.supportsGoogleSearch && (adv.googleSearch || adv.googleImageSearch)) payload.google_search = true;
+    if (spec.supportsGoogleImageSearch && adv.googleImageSearch) payload.google_image_search = true;
   }
   return payload;
 }
@@ -111,8 +113,7 @@ function shouldPoll(createdAt: number, lastPolledAt: number | undefined): boolea
 function estimateProgress(turn: Turn, apiProgress?: number): number {
   if (typeof apiProgress === 'number' && apiProgress > 0) return Math.min(99, apiProgress);
   const age = Date.now() - turn.createdAt;
-  const expected = turn.model === 'gpt-image-2-official' && (turn.resolution === '2k' || turn.resolution === '4k')
-    ? 120_000 : 60_000;
+  const expected = isSlowModelResolution(turn.model, turn.resolution) ? 120_000 : 60_000;
   const pct = Math.min(95, (age / expected) * 90 + 5);
   return Math.max(turn.progress, pct);
 }
@@ -121,7 +122,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [tweaks, setTweaks] = useState<Tweaks>(DEFAULT_TWEAKS);
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [configs, setConfigs] = useState<ApiConfig[]>(DEFAULT_CONFIGS);
-  const [model, setModel] = useState('gpt-image-2');
+  const [model, setModel] = useState<string>(DEFAULT_MODEL);
   const [ratio, setRatio] = useState('1:1');
   const [n, setN] = useState(1);
   const [adv, setAdv] = useState<Adv>(DEFAULT_ADV);
@@ -165,6 +166,33 @@ export function AppShell({ children }: { children: ReactNode }) {
   const activeConfig = configs.find((c) => c.enabled && c.key?.trim());
   const hasKey = Boolean(activeConfig);
   const apiKey = activeConfig?.key ?? '';
+
+  useEffect(() => {
+    const spec = getModelSpec(model);
+    let nextAdv = adv;
+    let advChanged = false;
+
+    if (spec.supportsResolution && spec.resolutions?.length && !spec.resolutions.includes(nextAdv.resolution)) {
+      nextAdv = { ...nextAdv, resolution: spec.resolutions[0] };
+      advChanged = true;
+    }
+
+    if (!spec.supportsGoogleSearch && (nextAdv.googleSearch || nextAdv.googleImageSearch)) {
+      nextAdv = { ...nextAdv, googleSearch: false, googleImageSearch: false };
+      advChanged = true;
+    }
+
+    const availableSizes = getAvailableSizes(spec, nextAdv.resolution);
+    if (!availableSizes.includes(ratio)) {
+      setRatio(availableSizes[0]);
+    }
+    if (n > spec.maxN) {
+      setN(spec.maxN);
+    }
+    if (advChanged) {
+      setAdv(nextAdv);
+    }
+  }, [adv, model, n, ratio]);
 
   // --- Polling engine ----------------------------------------------------
   const inflightRef = useRef<Set<string>>(new Set());
@@ -240,7 +268,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         });
         applyTaskUpdate(turn.id, {
           resultUrls: urls,
-          expiresAt: data.result?.images?.[0]?.expires_at,
+          expiresAt: firstExpiresAt(data),
           progress: 100,
         }, 'complete');
       } else if (norm === 'failed') {
@@ -338,6 +366,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     prompt: string; refs: RefImage[]; model: string; ratio: string; n: number; adv: Adv;
   }) => {
     if (!apiKey) return;
+    const spec = getModelSpec(mdl);
     const turnId = genId('turn');
     const pending: Turn = {
       id: turnId,
@@ -346,8 +375,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       refs,
       model: mdl,
       ratio: r,
-      resolution: mdl === 'gpt-image-2-official' ? advSnap.resolution : undefined,
-      quality: mdl === 'gpt-image-2-official' ? advSnap.quality : undefined,
+      resolution: spec.supportsResolution ? advSnap.resolution : undefined,
+      quality: spec.supportsQuality ? advSnap.quality : undefined,
       n: num,
       status: 'submitted',
       progress: 2,
