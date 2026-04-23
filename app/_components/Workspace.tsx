@@ -3,11 +3,20 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { getAvailableSizes, getModelSpec, MODELS, QUICK_PROMPTS, clsx, fmtTime, hueFor } from '../_lib/data';
+import { formatComposerPriceHint, type PriceRecord } from '../_lib/pricing';
 import { useStore, type DiagnosticEntry, type RefImage, type Turn } from '../_lib/store';
 import { downloadImage, previewImage, readFileAsDataURL } from '../_lib/apimart';
 import { I } from './Icons';
 
-function Composer({ hasKey, onSubmit }: { hasKey: boolean; onSubmit: (p: { prompt: string; refs: RefImage[]; model: string; ratio: string; n: number }) => void; }) {
+function Composer({
+  hasKey,
+  onSubmit,
+  prices,
+}: {
+  hasKey: boolean;
+  onSubmit: (p: { prompt: string; refs: RefImage[]; model: string; ratio: string; n: number }) => void;
+  prices: PriceRecord[];
+}) {
   const { tweaks, model, setModel, ratio, setRatio, n, setN, adv, setDrawerOpen, turns } = useStore();
   const floating = tweaks.floating && turns.length === 0;
   const [prompt, setPrompt] = useState('');
@@ -61,6 +70,11 @@ function Composer({ hasKey, onSubmit }: { hasKey: boolean; onSubmit: (p: { promp
   const maxRefs = modelSpec.maxRefs;
   const maxFileSize = modelSpec.maxFileSizeMb * 1024 * 1024;
   const canSubmit = hasKey && prompt.trim().length > 0;
+  const priceHint = formatComposerPriceHint(prices, modelSpec.key, {
+    resolution: modelSpec.supportsResolution ? adv.resolution : undefined,
+    ratio,
+    quality: modelSpec.supportsQuality ? adv.quality : undefined,
+  });
 
   function chooseModel(nextModel: string) {
     const nextSpec = getModelSpec(nextModel);
@@ -261,9 +275,7 @@ function Composer({ hasKey, onSubmit }: { hasKey: boolean; onSubmit: (p: { promp
           </button>
 
           <div className="qb-spacer" />
-          <div className="qb-hint">
-            <kbd>Shift</kbd>+<kbd>Enter</kbd> newline · <kbd>Enter</kbd> submit
-          </div>
+          <div className="qb-hint">{priceHint ?? 'Shift+Enter newline | Enter submit'}</div>
         </div>
       </div>
     </div>
@@ -514,7 +526,7 @@ function ResultCard({ turn, onRetry, onReuse }: {
   );
 }
 
-export function Workspace() {
+export function Workspace({ prices = [] }: { prices?: PriceRecord[] }) {
   const router = useRouter();
   const { hasKey, turns, model, ratio, n, adv, submitTurn, retryTurn, setModel, setRatio, setN } = useStore();
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -559,7 +571,7 @@ export function Workspace() {
           ))}
         </div>
       </div>
-      <Composer hasKey={hasKey} onSubmit={handleComposerSubmit} />
+      <Composer hasKey={hasKey} onSubmit={handleComposerSubmit} prices={prices} />
     </div>
   );
 }

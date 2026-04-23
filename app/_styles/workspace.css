@@ -605,12 +605,14 @@
 .qb-hint {
   font-family: var(--font-mono);
   font-size: 10px;
-  color: var(--fg-4);
+  color: #fff;
   padding-right: 4px;
-}
-.qb-hint kbd {
-  padding: 1px 5px; border: 1px solid var(--border); border-radius: 3px;
-  margin: 0 2px;
+  flex: 1 1 280px;
+  min-width: 0;
+  line-height: 1.35;
+  text-align: right;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* dropdown */
