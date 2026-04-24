@@ -6,6 +6,7 @@ import { getAvailableSizes, getModelSpec, MODELS, QUICK_PROMPTS, clsx, fmtTime, 
 import { formatComposerPriceHint, type PriceRecord } from '../_lib/pricing';
 import { useStore, type DiagnosticEntry, type RefImage, type Turn } from '../_lib/store';
 import { downloadImage, previewImage, readFileAsDataURL } from '../_lib/apimart';
+import TextType from './TextType';
 import { I } from './Icons';
 
 function Composer({
@@ -271,7 +272,7 @@ function Composer({
 
           <button className="qb" onClick={() => setDrawerOpen(true)}>
             <I.Sliders />
-            <span>Params</span>
+            <span>参数</span>
           </button>
 
           <div className="qb-spacer" />
@@ -360,8 +361,20 @@ function EmptyState({ onPick }: { onPick: (p: string) => void }) {
         <div className="dot" />
       </div>
       <div>
-        <h1>Start your <em>next render</em>.</h1>
-        <div className="sub" style={{ marginTop: 12 }}>Describe the scene below, upload references, or start from a quick prompt.</div>
+        <h1>
+          <TextType
+            as="span"
+            text={['开启你的下一次渲染。']}
+            typingSpeed={105}
+            deletingSpeed={55}
+            pauseDuration={4000}
+            showCursor
+            cursorCharacter="|"
+            cursorClassName="empty-title-cursor"
+            className="empty-title-type"
+          />
+        </h1>
+        <div className="sub" style={{ marginTop: 12 }}>在下方描述画面、上传参考图，或从快捷提示开始。</div>
       </div>
       <div className="chips">
         {QUICK_PROMPTS.map((prompt) => (
